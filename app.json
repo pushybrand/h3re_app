@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "H3RE",
+    "slug": "h3re",
+    "scheme": "h3re",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.h3re.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "H3RE needs your location to check whether you're at a drop site."
+        }
+      ]
+    ]
+  }
+}
