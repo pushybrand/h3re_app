@@ -1,44 +1,72 @@
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { Transaction, SystemProgram, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Transaction, SystemProgram } from '@solana/web3.js';
 import { COLORS } from '../_layout';
-import { getVerifiedLocation } from '../../lib/location';
+import { getVerifiedLocation, haversineDistanceMeters } from '../../lib/location';
 import { signAndSendTransaction } from '../../lib/wallet';
+import { getDropById } from '../../lib/drops';
+import { getLastCheckIn, recordCheckIn } from '../../lib/checkInHistory';
+import { verifyCheckIn } from '../../server/verifyLocation';
 
 type CheckInState = 'idle' | 'checking' | 'in-range' | 'out-of-range' | 'error';
 
-// Stubbed drop lookup — replace with a real fetch by `id` once you have an API.
-const DROP = {
-  name: 'neon alley',
-  location: 'Shibuya, Tokyo',
-  editionsLeft: 8,
-  editionsTotal: 50,
-};
-
 export default function Mint() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const drop = getDropById(typeof id === 'string' ? id : id?.[0]);
   const [checkIn, setCheckIn] = useState<CheckInState>('idle');
   const [distanceLabel, setDistanceLabel] = useState<string | null>(null);
   const [minting, setMinting] = useState(false);
 
   const runCheckIn = useCallback(async () => {
-    setCheckIn('checking');
-    const fix = await getVerifiedLocation();
-    if (!fix) {
+    if (!drop) {
       setCheckIn('error');
       return;
     }
 
-    // POST fix + dropId to /api/check-in, which runs verifyCheckIn()
-    // server-side (server/verifyLocation.ts) and returns approved/denied
-    // plus the distance so the UI can show something useful either way.
-    // Stubbed here as an always-approved response for local UI testing.
-    const serverResponse = { approved: true, distanceMeters: 40 };
+    setCheckIn('checking');
+    const fix = await getVerifiedLocation();
+    if (!fix) {
+      console.log('[check-in] no GPS fix');
+      setCheckIn('error');
+      return;
+    }
 
-    setDistanceLabel(`${serverResponse.distanceMeters} m away`);
-    setCheckIn(serverResponse.approved ? 'in-range' : 'out-of-range');
-  }, [id]);
+    const walletAddress = 'local-device';
+    const prior = getLastCheckIn(walletAddress);
+
+    const distanceMeters = Math.round(
+      haversineDistanceMeters(fix.latitude, fix.longitude, drop.latitude, drop.longitude)
+    );
+
+    const result = verifyCheckIn(
+      {
+        walletAddress,
+        dropId: drop.id,
+        latitude: fix.latitude,
+        longitude: fix.longitude,
+        accuracy: fix.accuracy,
+        clientReportedMock: fix.isMockLocation,
+        timestamp: fix.timestamp,
+      },
+      drop,
+      prior
+    );
+
+    recordCheckIn(walletAddress, fix.latitude, fix.longitude, fix.timestamp);
+
+    console.log('[check-in] verification', {
+      dropId: drop.id,
+      walletAddress,
+      approved: result.approved,
+      reason: result.reason,
+      bondAction: result.bondAction,
+      distanceMeters,
+    });
+
+    setDistanceLabel(`${distanceMeters} m away`);
+    setCheckIn(result.approved ? 'in-range' : 'out-of-range');
+  }, [drop]);
 
   const handleMint = useCallback(async () => {
     setMinting(true);
@@ -59,29 +87,39 @@ export default function Mint() {
       });
 
       if (signature) {
-        Alert.alert('Minted!', `${DROP.name} is now yours.\n${signature.slice(0, 12)}…`);
+        Alert.alert('Minted!', `${drop?.name ?? 'drop'} is now yours.\n${signature.slice(0, 12)}…`);
       } else {
         Alert.alert('Mint failed', 'Something went wrong signing the transaction.');
       }
     } finally {
       setMinting(false);
     }
-  }, []);
+  }, [drop]);
+
+  if (!drop) {
+    return (
+      <View style={styles.screen}>
+        <View style={styles.body}>
+          <Text style={styles.desc}>this drop could not be found</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>
       <View style={styles.imageBlock} />
 
       <View style={styles.body}>
-        <Text style={styles.location}>{DROP.location}</Text>
-        <Text style={styles.desc}>A fleeting moment in the everyday. Minted for those who were H3RE.</Text>
+        <Text style={styles.location}>{drop.location}</Text>
+        <Text style={styles.desc}>{drop.description}</Text>
 
         <View style={styles.editionRow}>
           <Text style={styles.editionLabel}>edition</Text>
-          <Text style={styles.editionValue}>{DROP.editionsLeft} / {DROP.editionsTotal} left</Text>
+          <Text style={styles.editionValue}>{drop.editionsLeft} / {drop.editionsTotal} left</Text>
         </View>
         <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${(1 - DROP.editionsLeft / DROP.editionsTotal) * 100}%` }]} />
+          <View style={[styles.progressFill, { width: `${(1 - drop.editionsLeft / drop.editionsTotal) * 100}%` }]} />
         </View>
 
         {checkIn === 'idle' && (

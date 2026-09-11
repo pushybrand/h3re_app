@@ -1,16 +1,56 @@
+import { useEffect, useState } from 'react';
 import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { COLORS } from './_layout';
+import { DROPS, type Drop } from '../lib/drops';
+import { getVerifiedLocation, haversineDistanceMeters } from '../lib/location';
 
-// Stubbed — replace with a real fetch to your drops API once it exists.
-const NEARBY_DROPS = [
-  { id: 'neon-alley', name: 'neon alley', distanceM: 120, left: '8/50 left', accent: COLORS.bubblegum },
-  { id: 'skyline-moment', name: 'skyline moment', distanceM: 320, left: '3/25 left', accent: COLORS.mint },
-  { id: 'ramen-spot', name: 'ramen spot', distanceM: 480, left: '12/100 left', accent: COLORS.yellow },
-];
+const ACCENTS = [COLORS.bubblegum, COLORS.mint, COLORS.yellow];
+
+type NearbyDrop = Drop & {
+  distanceM: number | null;
+  accent: string;
+};
 
 export default function Discover() {
   const router = useRouter();
+  const [nearby, setNearby] = useState<NearbyDrop[]>(
+    DROPS.map((drop, i) => ({ ...drop, distanceM: null, accent: ACCENTS[i % ACCENTS.length] }))
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const fix = await getVerifiedLocation();
+      if (cancelled) return;
+
+      const withDistance: NearbyDrop[] = DROPS.map((drop, i) => {
+        const distanceM = fix
+          ? Math.round(
+              haversineDistanceMeters(fix.latitude, fix.longitude, drop.latitude, drop.longitude)
+            )
+          : null;
+        return { ...drop, distanceM, accent: ACCENTS[i % ACCENTS.length] };
+      }).sort((a, b) => {
+        if (a.distanceM === null && b.distanceM === null) return 0;
+        if (a.distanceM === null) return 1;
+        if (b.distanceM === null) return -1;
+        return a.distanceM - b.distanceM;
+      });
+
+      console.log('[discover] user location', fix);
+      console.log(
+        '[discover] drops by distance',
+        withDistance.map((d) => ({ id: d.id, distanceM: d.distanceM }))
+      );
+      setNearby(withDistance);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <View style={styles.screen}>
@@ -22,7 +62,7 @@ export default function Discover() {
       </View>
 
       <FlatList
-        data={NEARBY_DROPS}
+        data={nearby}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 14, gap: 8 }}
         renderItem={({ item }) => (
@@ -31,10 +71,12 @@ export default function Discover() {
             onPress={() => router.push(`/mint/${item.id}`)}
           >
             <View style={[styles.distanceTag, { borderColor: item.accent }]}>
-              <Text style={[styles.distanceText, { color: item.accent }]}>{item.distanceM} m</Text>
+              <Text style={[styles.distanceText, { color: item.accent }]}>
+                {item.distanceM === null ? '— m' : `${item.distanceM} m`}
+              </Text>
             </View>
             <Text style={styles.cardTitle}>{item.name}</Text>
-            <Text style={styles.cardSub}>{item.left}</Text>
+            <Text style={styles.cardSub}>{item.editionsLeft}/{item.editionsTotal} left</Text>
           </Pressable>
         )}
       />
