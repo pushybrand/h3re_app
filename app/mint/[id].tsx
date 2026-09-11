@@ -4,7 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { Transaction, SystemProgram, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { COLORS } from '../_layout';
 import { getVerifiedLocation } from '../../lib/location';
-import { connectWallet, signAndSendTransaction } from '../../lib/wallet';
+import { signAndSendTransaction } from '../../lib/wallet';
 
 type CheckInState = 'idle' | 'checking' | 'in-range' | 'out-of-range' | 'error';
 
@@ -43,12 +43,6 @@ export default function Mint() {
   const handleMint = useCallback(async () => {
     setMinting(true);
     try {
-      const pubkey = await connectWallet();
-      if (!pubkey) {
-        Alert.alert('Wallet not connected', 'Approve the connection in your wallet app to mint.');
-        return;
-      }
-
       // Placeholder transaction — swap for the real mint instruction
       // (candy-machine style mint, or your own program's mint ix) once
       // the on-chain side exists. This just proves the MWA sign/send path.

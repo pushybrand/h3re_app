@@ -40,24 +40,37 @@ export async function signAndSendTransaction(
   buildTx: (walletPubkey: PublicKey) => Promise<Transaction>
 ): Promise<string | null> {
   try {
-    return await transact(async (wallet: Web3MobileWallet) => {
+    console.log('[wallet] fetching latest blockhash');
+    const latestBlockhash = await connection.getLatestBlockhash();
+
+    console.log('[wallet] opening MWA session');
+    const signedTx = await transact(async (wallet: Web3MobileWallet) => {
+      console.log('[wallet] authorizing');
       const authResult = await wallet.authorize({
         cluster: 'devnet',
         identity: APP_IDENTITY,
       });
       const pubkeyBytes = Buffer.from(authResult.accounts[0].address, 'base64');
       const pubkey = new PublicKey(pubkeyBytes);
+      console.log('[wallet] authorized', pubkey.toBase58());
 
+      console.log('[wallet] building transaction');
       const tx = await buildTx(pubkey);
-      const latestBlockhash = await connection.getLatestBlockhash();
       tx.recentBlockhash = latestBlockhash.blockhash;
       tx.feePayer = pubkey;
 
+      console.log('[wallet] requesting signature');
       const signedTxs = await wallet.signTransactions({ transactions: [tx] });
-      const signature = await connection.sendRawTransaction(signedTxs[0].serialize());
-      await connection.confirmTransaction(signature, 'confirmed');
-      return signature;
+      console.log('[wallet] transaction signed');
+      return signedTxs[0];
     });
+
+    console.log('[wallet] sending raw transaction');
+    const signature = await connection.sendRawTransaction(signedTx.serialize());
+    console.log('[wallet] confirming transaction', signature);
+    await connection.confirmTransaction(signature, 'confirmed');
+    console.log('[wallet] confirmed', signature);
+    return signature;
   } catch (err) {
     console.error('[wallet] sign/send failed', err);
     return null;
