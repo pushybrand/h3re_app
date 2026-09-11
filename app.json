@@ -21,6 +21,14 @@
         {
           "locationAlwaysAndWhenInUsePermission": "H3RE needs your location to check whether you're at a drop site."
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.9.25"
+          }
+        }
       ]
     ],
     "extra": {
@@ -30,3 +38,4 @@
     }
   }
 }
+
