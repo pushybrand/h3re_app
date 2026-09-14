@@ -38,6 +38,7 @@ type VerificationResult = {
   approved: boolean;
   reason?: string;
   bondAction: 'refund' | 'slash' | 'none';
+  distanceMeters: number;
 };
 
 const MAX_PLAUSIBLE_SPEED_MPS = 55; // ~200 km/h — generous, catches teleport-style spoofing
@@ -64,10 +65,17 @@ export function verifyCheckIn(
   drop: DropRecord,
   prior: PriorCheckIn
 ): VerificationResult {
+  const distanceMeters = haversineDistanceMeters(
+    req.latitude,
+    req.longitude,
+    drop.latitude,
+    drop.longitude
+  );
+
   // 1. Reject anything the client itself flagged as mocked.
   //    Not sufficient alone, but a free early rejection.
   if (req.clientReportedMock) {
-    return { approved: false, reason: 'client_reported_mock_location', bondAction: 'slash' };
+    return { approved: false, reason: 'client_reported_mock_location', bondAction: 'slash', distanceMeters };
   }
 
   // 2. Reject fixes with no/garbage accuracy, or suspiciously exact ones.
@@ -76,13 +84,12 @@ export function verifyCheckIn(
     req.accuracy > MIN_ACCEPTABLE_ACCURACY_M ||
     req.accuracy < SUSPICIOUSLY_PERFECT_ACCURACY_M
   ) {
-    return { approved: false, reason: 'implausible_accuracy', bondAction: 'slash' };
+    return { approved: false, reason: 'implausible_accuracy', bondAction: 'slash', distanceMeters };
   }
 
   // 3. Distance check against the drop's pin + radius.
-  const distance = haversineDistanceMeters(req.latitude, req.longitude, drop.latitude, drop.longitude);
-  if (distance > drop.radiusMeters) {
-    return { approved: false, reason: 'outside_radius', bondAction: 'refund' }; // honest miss, not fraud — refund
+  if (distanceMeters > drop.radiusMeters) {
+    return { approved: false, reason: 'outside_radius', bondAction: 'refund', distanceMeters }; // honest miss, not fraud — refund
   }
 
   // 4. Speed/teleport check against the wallet's last known check-in.
@@ -95,11 +102,11 @@ export function verifyCheckIn(
     );
     const impliedSpeed = distanceFromPrior / elapsedSeconds;
     if (impliedSpeed > MAX_PLAUSIBLE_SPEED_MPS) {
-      return { approved: false, reason: 'implausible_travel_speed', bondAction: 'slash' };
+      return { approved: false, reason: 'implausible_travel_speed', bondAction: 'slash', distanceMeters };
     }
   }
 
-  return { approved: true, bondAction: 'refund' };
+  return { approved: true, bondAction: 'refund', distanceMeters };
 }
 
 /**
