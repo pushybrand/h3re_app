@@ -3,57 +3,52 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'rea
 import { useLocalSearchParams } from 'expo-router';
 import { Transaction, SystemProgram } from '@solana/web3.js';
 import { COLORS } from '../_layout';
-import { getVerifiedLocation, haversineDistanceMeters } from '../../lib/location';
+import { getVerifiedLocation } from '../../lib/location';
 import { signAndSendTransaction } from '../../lib/wallet';
 import { getDropById } from '../../lib/drops';
-import { getLastCheckIn, recordCheckIn } from '../../lib/checkInHistory';
-import { verifyCheckIn } from '../../server/verifyLocation';
+import { recordCheckIn } from '../../lib/checkInHistory';
+import { checkIn } from '../../lib/api';
 
 type CheckInState = 'idle' | 'checking' | 'in-range' | 'out-of-range' | 'error';
 
 export default function Mint() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const drop = getDropById(typeof id === 'string' ? id : id?.[0]);
-  const [checkIn, setCheckIn] = useState<CheckInState>('idle');
+  const [checkInState, setCheckInState] = useState<CheckInState>('idle');
   const [distanceLabel, setDistanceLabel] = useState<string | null>(null);
+  const [failReason, setFailReason] = useState<string | null>(null);
   const [minting, setMinting] = useState(false);
 
   const runCheckIn = useCallback(async () => {
     if (!drop) {
-      setCheckIn('error');
+      setCheckInState('error');
       return;
     }
 
-    setCheckIn('checking');
+    setCheckInState('checking');
+    setFailReason(null);
     const fix = await getVerifiedLocation();
     if (!fix) {
       console.log('[check-in] no GPS fix');
-      setCheckIn('error');
+      setCheckInState('error');
       return;
     }
 
     const walletAddress = 'local-device';
-    const prior = getLastCheckIn(walletAddress);
 
-    const distanceMeters = Math.round(
-      haversineDistanceMeters(fix.latitude, fix.longitude, drop.latitude, drop.longitude)
-    );
-
-    const result = verifyCheckIn(
-      {
-        walletAddress,
-        dropId: drop.id,
-        latitude: fix.latitude,
-        longitude: fix.longitude,
-        accuracy: fix.accuracy,
-        clientReportedMock: fix.isMockLocation,
-        timestamp: fix.timestamp,
-      },
-      drop,
-      prior
-    );
+    const result = await checkIn({
+      walletAddress,
+      dropId: drop.id,
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      accuracy: fix.accuracy,
+      clientReportedMock: fix.isMockLocation,
+      timestamp: fix.timestamp,
+    });
 
     recordCheckIn(walletAddress, fix.latitude, fix.longitude, fix.timestamp);
+
+    const distanceMeters = Math.round(result.distanceMeters);
 
     console.log('[check-in] verification', {
       dropId: drop.id,
@@ -65,7 +60,13 @@ export default function Mint() {
     });
 
     setDistanceLabel(`${distanceMeters} m away`);
-    setCheckIn(result.approved ? 'in-range' : 'out-of-range');
+    if (result.approved) {
+      setFailReason(null);
+      setCheckInState('in-range');
+    } else {
+      setFailReason(result.reason === 'outside_radius' ? 'too far away' : 'location check failed');
+      setCheckInState('out-of-range');
+    }
   }, [drop]);
 
   const handleMint = useCallback(async () => {
@@ -122,20 +123,20 @@ export default function Mint() {
           <View style={[styles.progressFill, { width: `${(1 - drop.editionsLeft / drop.editionsTotal) * 100}%` }]} />
         </View>
 
-        {checkIn === 'idle' && (
+        {checkInState === 'idle' && (
           <Pressable style={styles.secondaryButton} onPress={runCheckIn}>
             <Text style={styles.secondaryButtonText}>check my location</Text>
           </Pressable>
         )}
 
-        {checkIn === 'checking' && (
+        {checkInState === 'checking' && (
           <View style={styles.statusPill}>
             <ActivityIndicator size="small" color={COLORS.mint} />
             <Text style={[styles.statusText, { color: COLORS.mint }]}>checking location…</Text>
           </View>
         )}
 
-        {checkIn === 'in-range' && (
+        {checkInState === 'in-range' && (
           <View style={styles.statusPill}>
             <Text style={[styles.statusText, { color: COLORS.mint }]}>
               you're in range · {distanceLabel}
@@ -143,15 +144,15 @@ export default function Mint() {
           </View>
         )}
 
-        {checkIn === 'out-of-range' && (
+        {checkInState === 'out-of-range' && (
           <View style={styles.statusPill}>
             <Text style={[styles.statusText, { color: COLORS.bubblegum }]}>
-              too far away · {distanceLabel}
+              {failReason} · {distanceLabel}
             </Text>
           </View>
         )}
 
-        {checkIn === 'error' && (
+        {checkInState === 'error' && (
           <View style={styles.statusPill}>
             <Text style={[styles.statusText, { color: COLORS.bubblegum }]}>
               couldn't get your location — check permissions
@@ -160,8 +161,8 @@ export default function Mint() {
         )}
 
         <Pressable
-          style={[styles.mintButton, checkIn !== 'in-range' && styles.mintButtonDisabled]}
-          disabled={checkIn !== 'in-range' || minting}
+          style={[styles.mintButton, checkInState !== 'in-range' && styles.mintButtonDisabled]}
+          disabled={checkInState !== 'in-range' || minting}
           onPress={handleMint}
         >
           {minting ? (
