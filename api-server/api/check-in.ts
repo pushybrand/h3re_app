@@ -1,5 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getLastCheckIn, recordCheckIn } from '../lib/checkInStore';
+import { isBondSignatureUsed, markBondSignatureUsed } from '../lib/bondStore';
+import { verifyBondPayment, refundBond } from '../lib/bond';
 import { getDropById } from '../lib/drops';
 import { verifyCheckIn } from '../lib/verifyLocation';
 
@@ -30,7 +32,7 @@ function validateCheckInBody(body: unknown): string | null {
     return 'Request body must be a JSON object';
   }
 
-  const { walletAddress, dropId, latitude, longitude, accuracy, clientReportedMock, timestamp } =
+  const { walletAddress, dropId, latitude, longitude, accuracy, clientReportedMock, timestamp, bondSignature } =
     body as Record<string, unknown>;
 
   if (typeof walletAddress !== 'string' || walletAddress.length === 0) {
@@ -54,6 +56,9 @@ function validateCheckInBody(body: unknown): string | null {
   if (!isFiniteNumber(timestamp)) {
     return 'timestamp must be a finite number';
   }
+  if (typeof bondSignature !== 'string' || bondSignature.length === 0) {
+    return 'bondSignature must be a non-empty string';
+  }
 
   return null;
 }
@@ -76,34 +81,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: validationError });
     }
 
-    const { walletAddress, dropId, latitude, longitude, accuracy, clientReportedMock, timestamp } =
-      body as {
-        walletAddress: string;
-        dropId: string;
-        latitude: number;
-        longitude: number;
-        accuracy: number | null;
-        clientReportedMock: boolean;
-        timestamp: number;
-      };
+    const {
+      walletAddress, dropId, latitude, longitude,
+      accuracy, clientReportedMock, timestamp, bondSignature,
+    } = body as {
+      walletAddress: string;
+      dropId: string;
+      latitude: number;
+      longitude: number;
+      accuracy: number | null;
+      clientReportedMock: boolean;
+      timestamp: number;
+      bondSignature: string;
+    };
 
     const drop = getDropById(dropId);
     if (!drop) {
-      return res.status(404).json({ error: `Drop not found: ${dropId}` });
+      return res.status(404).json({ error: 'Drop not found: ' + dropId });
     }
 
-    // Prior position for this wallet, if we have one. Feeds the travel-speed
-    // check — a wallet that "arrives" faster than physically possible is a
-    // strong spoofing signal even when the device reports a clean GPS fix.
+    // --- Bond checks, before any location work ---
+    // One bond, one check-in. Without this a single payment could back
+    // unlimited attempts: pay once, spoof forever.
+    if (await isBondSignatureUsed(bondSignature)) {
+      console.log('[bond] signature already used', { walletAddress, bondSignature });
+      return res.status(400).json({
+        approved: false,
+        reason: 'bond_already_used',
+        bondAction: 'none',
+      });
+    }
+
+    const bond = await verifyBondPayment(bondSignature, walletAddress);
+    if (!bond.valid) {
+      console.log('[bond] payment invalid', { walletAddress, reason: bond.reason });
+      return res.status(400).json({
+        approved: false,
+        reason: bond.reason,
+        bondAction: 'none',
+      });
+    }
+
+    await markBondSignatureUsed(bondSignature, walletAddress);
+
+    // --- Location verification ---
     const prior = await getLastCheckIn(walletAddress);
 
     if (prior) {
       const elapsedSeconds = Math.max((timestamp - prior.timestamp) / 1000, 1);
       const distanceFromPrior = haversineDistanceMeters(
-        latitude,
-        longitude,
-        prior.latitude,
-        prior.longitude
+        latitude, longitude, prior.latitude, prior.longitude
       );
       console.log('[check-in] prior found', {
         walletAddress,
@@ -121,10 +148,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       prior
     );
 
-    // Only record approved check-ins. Recording a rejected spoof attempt would
-    // poison the history and let an attacker set up a plausible next position.
     if (result.approved) {
       await recordCheckIn(walletAddress, latitude, longitude, timestamp);
+    }
+
+    // --- Settle the bond ---
+    // Approved and honest-miss both get the bond back. Only fraud forfeits:
+    // being far from a drop is not a lie, claiming to be near one is.
+    let refundSignature: string | null = null;
+    if (result.bondAction === 'refund') {
+      refundSignature = await refundBond(walletAddress);
+    } else if (result.bondAction === 'slash') {
+      console.log('[bond] slashed', { walletAddress, reason: result.reason });
     }
 
     console.log('[check-in] result', {
@@ -134,6 +169,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       reason: result.reason,
       bondAction: result.bondAction,
       distanceMeters: Math.round(result.distanceMeters ?? 0),
+      refundSignature,
     });
 
     return res.status(200).json({
@@ -141,6 +177,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       reason: result.reason,
       bondAction: result.bondAction,
       distanceMeters: result.distanceMeters,
+      refundSignature,
     });
   } catch (error) {
     console.error('check-in failed', error);

@@ -11,3 +11,5 @@ web-build/
 .DS_Store
 *.log
 *.tsbuildinfo
+
+h3re-escrow.json
