@@ -8,8 +8,8 @@ export type DropRecord = {
 export const DROPS: DropRecord[] = [
   {
     id: 'neon-alley',
-    latitude: 50.3363767,
-    longitude: -4.8672183,
+    latitude: 50.2636233,
+    longitude: -5.053485,
     radiusMeters: 100,
   },
   {
@@ -30,3 +30,4 @@ export function getDropById(id: string | undefined): DropRecord | undefined {
   if (!id) return undefined;
   return DROPS.find((drop) => drop.id === id);
 }
+
