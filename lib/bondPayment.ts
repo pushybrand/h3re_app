@@ -8,6 +8,8 @@ import { getVerifiedLocation } from './location';
 
 const API_BASE = 'https://h3re-api.vercel.app';
 
+let lastWalletAddress: string | null = null;
+
 const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
 
 const APP_IDENTITY = {
@@ -90,6 +92,7 @@ export async function checkInWithBond(dropId: string): Promise<CheckInResult> {
     console.log('[bond] quote', quote.amountUi, 'to', quote.escrow);
 
     const { signature, walletAddress } = await payBond(quote);
+    lastWalletAddress = walletAddress;
 
     const res = await fetch(`${API_BASE}/api/check-in`, {
       method: 'POST',
@@ -112,5 +115,41 @@ export async function checkInWithBond(dropId: string): Promise<CheckInResult> {
   } catch (err: any) {
     console.error('[check-in] failed', err);
     return { approved: false, error: err?.message ?? 'check_in_failed' };
+  }
+}
+
+export type MintResult = {
+  minted: boolean;
+  assetAddress?: string;
+  signature?: string;
+  reason?: string;
+  error?: string;
+};
+
+/**
+ * Asks the server to mint. No wallet prompt - the server already verified
+ * presence and holds the ticket that authorises this, so the collector
+ * signs nothing beyond the bond they already paid.
+ */
+export async function requestMint(dropId: string): Promise<MintResult> {
+  try {
+    if (!lastWalletAddress) {
+      return { minted: false, error: 'no_wallet' };
+    }
+
+    console.log('[mint] requesting', { dropId, wallet: lastWalletAddress });
+
+    const res = await fetch(`${API_BASE}/api/mint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ walletAddress: lastWalletAddress, dropId }),
+    });
+
+    const result = await res.json();
+    console.log('[mint] server said', result);
+    return result;
+  } catch (err: any) {
+    console.error('[mint] failed', err);
+    return { minted: false, error: err?.message ?? 'mint_failed' };
   }
 }

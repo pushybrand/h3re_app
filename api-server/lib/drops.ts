@@ -14,8 +14,8 @@ export const DROPS: DropRecord[] = [
   },
   {
     id: 'skyline-moment',
-    latitude: 35.6595,
-    longitude: 139.7004,
+    latitude: 50.262562,
+    longitude: -5.0506975,
     radiusMeters: 150,
   },
   {

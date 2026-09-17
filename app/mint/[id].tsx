@@ -1,11 +1,9 @@
 import { useState, useCallback } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
-import { Transaction, SystemProgram } from '@solana/web3.js';
 import { COLORS } from '../_layout';
-import { signAndSendTransaction } from '../../lib/wallet';
 import { getDropById } from '../../lib/drops';
-import { checkInWithBond } from '../../lib/bondPayment';
+import { checkInWithBond, requestMint } from '../../lib/bondPayment';
 
 type CheckInState = 'idle' | 'checking' | 'in-range' | 'out-of-range' | 'error';
 
@@ -59,7 +57,7 @@ export default function Mint() {
 
     const distanceMeters =
       typeof result.distanceMeters === 'number' ? Math.round(result.distanceMeters) : null;
-    setDistanceLabel(distanceMeters !== null ? `${distanceMeters} m away` : null);
+    setDistanceLabel(distanceMeters !== null ? distanceMeters + ' m away' : null);
 
     if (result.bondAction === 'refund') {
       setBondNote('bond refunded');
@@ -94,26 +92,22 @@ export default function Mint() {
   }, [drop]);
 
   const handleMint = useCallback(async () => {
+    if (!drop) return;
     setMinting(true);
     try {
-      // Placeholder transaction - swap for the real mint instruction once
-      // the on-chain side exists. This proves the MWA sign/send path.
-      const signature = await signAndSendTransaction(async (walletPubkey) => {
-        const tx = new Transaction();
-        tx.add(
-          SystemProgram.transfer({
-            fromPubkey: walletPubkey,
-            toPubkey: walletPubkey,
-            lamports: 0,
-          })
-        );
-        return tx;
-      });
+      const result = await requestMint(drop.id);
 
-      if (signature) {
-        Alert.alert('Minted!', `${drop?.name ?? 'drop'} is now yours.\n${signature.slice(0, 12)}...`);
+      if (result.minted) {
+        Alert.alert(
+          'Minted',
+          drop.name + ' is yours.\nasset ' + (result.assetAddress ?? '').slice(0, 12) + '...'
+        );
+      } else if (result.reason === 'already_minted') {
+        Alert.alert('Already minted', 'You have already collected this drop.');
+      } else if (result.reason === 'no_valid_check_in') {
+        Alert.alert('Check in first', 'Your check-in expired. Check in again to mint.');
       } else {
-        Alert.alert('Mint failed', 'Something went wrong signing the transaction.');
+        Alert.alert('Mint failed', result.reason ?? result.error ?? 'Something went wrong.');
       }
     } finally {
       setMinting(false);
@@ -143,7 +137,7 @@ export default function Mint() {
           <Text style={styles.editionValue}>{drop.editionsLeft} / {drop.editionsTotal} left</Text>
         </View>
         <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${(1 - drop.editionsLeft / drop.editionsTotal) * 100}%` }]} />
+          <View style={[styles.progressFill, { width: ((1 - drop.editionsLeft / drop.editionsTotal) * 100) + '%' }]} />
         </View>
 
         {checkInState === 'idle' && (
@@ -162,7 +156,7 @@ export default function Mint() {
         {checkInState === 'in-range' && (
           <View style={styles.statusPill}>
             <Text style={[styles.statusText, { color: COLORS.mint }]}>
-              you are in range{distanceLabel ? ` - ${distanceLabel}` : ''}{bondNote ? ` - ${bondNote}` : ''}
+              you are in range{distanceLabel ? ' - ' + distanceLabel : ''}{bondNote ? ' - ' + bondNote : ''}
             </Text>
           </View>
         )}
@@ -170,7 +164,7 @@ export default function Mint() {
         {checkInState === 'out-of-range' && (
           <View style={styles.statusPill}>
             <Text style={[styles.statusText, { color: COLORS.bubblegum }]}>
-              {failReason}{distanceLabel ? ` - ${distanceLabel}` : ''}{bondNote ? ` - ${bondNote}` : ''}
+              {failReason}{distanceLabel ? ' - ' + distanceLabel : ''}{bondNote ? ' - ' + bondNote : ''}
             </Text>
           </View>
         )}
