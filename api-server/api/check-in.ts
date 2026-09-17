@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getLastCheckIn, recordCheckIn } from '../lib/checkInStore';
 import { isBondSignatureUsed, markBondSignatureUsed } from '../lib/bondStore';
 import { verifyBondPayment, refundBond } from '../lib/bond';
+import { grantMintTicket } from '../lib/mintStore';
 import { getDropById } from '../lib/drops';
 import { verifyCheckIn } from '../lib/verifyLocation';
 
@@ -150,6 +151,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (result.approved) {
       await recordCheckIn(walletAddress, latitude, longitude, timestamp);
+      await grantMintTicket(walletAddress, dropId);
     }
 
     // --- Settle the bond ---

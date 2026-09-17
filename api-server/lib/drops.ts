@@ -8,8 +8,8 @@ export type DropRecord = {
 export const DROPS: DropRecord[] = [
   {
     id: 'neon-alley',
-    latitude: 50.2636233,
-    longitude: -5.053485,
+    latitude: 50.262562,
+    longitude: -5.0506975,
     radiusMeters: 100,
   },
   {
