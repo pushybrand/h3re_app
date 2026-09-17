@@ -3,13 +3,38 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'rea
 import { useLocalSearchParams } from 'expo-router';
 import { Transaction, SystemProgram } from '@solana/web3.js';
 import { COLORS } from '../_layout';
-import { getVerifiedLocation } from '../../lib/location';
 import { signAndSendTransaction } from '../../lib/wallet';
 import { getDropById } from '../../lib/drops';
-import { recordCheckIn } from '../../lib/checkInHistory';
-import { checkIn } from '../../lib/api';
+import { checkInWithBond } from '../../lib/bondPayment';
 
 type CheckInState = 'idle' | 'checking' | 'in-range' | 'out-of-range' | 'error';
+
+function describeFailure(reason?: string, error?: string): string {
+  if (error === 'location_permission_denied') return 'location permission denied';
+  if (error) return 'check-in failed';
+  switch (reason) {
+    case 'outside_radius':
+      return 'too far away';
+    case 'client_reported_mock_location':
+      return 'mock location detected';
+    case 'implausible_travel_speed':
+      return 'impossible travel detected';
+    case 'implausible_accuracy':
+      return 'gps accuracy looks wrong';
+    case 'bond_already_used':
+      return 'bond already spent';
+    case 'bond_not_found':
+    case 'bond_transaction_failed':
+    case 'bond_lookup_failed':
+      return 'bond payment failed';
+    case 'bond_amount_insufficient':
+      return 'bond too small';
+    case 'bond_payer_mismatch':
+      return 'bond came from another wallet';
+    default:
+      return 'location check failed';
+  }
+}
 
 export default function Mint() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -17,6 +42,7 @@ export default function Mint() {
   const [checkInState, setCheckInState] = useState<CheckInState>('idle');
   const [distanceLabel, setDistanceLabel] = useState<string | null>(null);
   const [failReason, setFailReason] = useState<string | null>(null);
+  const [bondNote, setBondNote] = useState<string | null>(null);
   const [minting, setMinting] = useState(false);
 
   const runCheckIn = useCallback(async () => {
@@ -27,44 +53,42 @@ export default function Mint() {
 
     setCheckInState('checking');
     setFailReason(null);
-    const fix = await getVerifiedLocation();
-    if (!fix) {
-      console.log('[check-in] no GPS fix');
-      setCheckInState('error');
-      return;
+    setBondNote(null);
+
+    const result = await checkInWithBond(drop.id);
+
+    const distanceMeters =
+      typeof result.distanceMeters === 'number' ? Math.round(result.distanceMeters) : null;
+    setDistanceLabel(distanceMeters !== null ? `${distanceMeters} m away` : null);
+
+    if (result.bondAction === 'refund') {
+      setBondNote('bond refunded');
+    } else if (result.bondAction === 'slash') {
+      setBondNote('bond forfeited');
+    } else {
+      setBondNote(null);
     }
-
-    const walletAddress = 'local-device';
-
-    const result = await checkIn({
-      walletAddress,
-      dropId: drop.id,
-      latitude: fix.latitude,
-      longitude: fix.longitude,
-      accuracy: fix.accuracy,
-      clientReportedMock: fix.isMockLocation,
-      timestamp: fix.timestamp,
-    });
-
-    recordCheckIn(walletAddress, fix.latitude, fix.longitude, fix.timestamp);
-
-    const distanceMeters = Math.round(result.distanceMeters);
 
     console.log('[check-in] verification', {
       dropId: drop.id,
-      walletAddress,
       approved: result.approved,
       reason: result.reason,
       bondAction: result.bondAction,
       distanceMeters,
+      refundSignature: result.refundSignature,
     });
 
-    setDistanceLabel(`${distanceMeters} m away`);
+    if (result.error === 'location_permission_denied') {
+      setFailReason(describeFailure(result.reason, result.error));
+      setCheckInState('error');
+      return;
+    }
+
     if (result.approved) {
       setFailReason(null);
       setCheckInState('in-range');
     } else {
-      setFailReason(result.reason === 'outside_radius' ? 'too far away' : 'location check failed');
+      setFailReason(describeFailure(result.reason, result.error));
       setCheckInState('out-of-range');
     }
   }, [drop]);
@@ -72,9 +96,8 @@ export default function Mint() {
   const handleMint = useCallback(async () => {
     setMinting(true);
     try {
-      // Placeholder transaction — swap for the real mint instruction
-      // (candy-machine style mint, or your own program's mint ix) once
-      // the on-chain side exists. This just proves the MWA sign/send path.
+      // Placeholder transaction - swap for the real mint instruction once
+      // the on-chain side exists. This proves the MWA sign/send path.
       const signature = await signAndSendTransaction(async (walletPubkey) => {
         const tx = new Transaction();
         tx.add(
@@ -88,7 +111,7 @@ export default function Mint() {
       });
 
       if (signature) {
-        Alert.alert('Minted!', `${drop?.name ?? 'drop'} is now yours.\n${signature.slice(0, 12)}…`);
+        Alert.alert('Minted!', `${drop?.name ?? 'drop'} is now yours.\n${signature.slice(0, 12)}...`);
       } else {
         Alert.alert('Mint failed', 'Something went wrong signing the transaction.');
       }
@@ -125,21 +148,21 @@ export default function Mint() {
 
         {checkInState === 'idle' && (
           <Pressable style={styles.secondaryButton} onPress={runCheckIn}>
-            <Text style={styles.secondaryButtonText}>check my location</Text>
+            <Text style={styles.secondaryButtonText}>stake bond and check in</Text>
           </Pressable>
         )}
 
         {checkInState === 'checking' && (
           <View style={styles.statusPill}>
             <ActivityIndicator size="small" color={COLORS.mint} />
-            <Text style={[styles.statusText, { color: COLORS.mint }]}>checking location…</Text>
+            <Text style={[styles.statusText, { color: COLORS.mint }]}>staking bond, checking location...</Text>
           </View>
         )}
 
         {checkInState === 'in-range' && (
           <View style={styles.statusPill}>
             <Text style={[styles.statusText, { color: COLORS.mint }]}>
-              you're in range · {distanceLabel}
+              you are in range{distanceLabel ? ` - ${distanceLabel}` : ''}{bondNote ? ` - ${bondNote}` : ''}
             </Text>
           </View>
         )}
@@ -147,7 +170,7 @@ export default function Mint() {
         {checkInState === 'out-of-range' && (
           <View style={styles.statusPill}>
             <Text style={[styles.statusText, { color: COLORS.bubblegum }]}>
-              {failReason} · {distanceLabel}
+              {failReason}{distanceLabel ? ` - ${distanceLabel}` : ''}{bondNote ? ` - ${bondNote}` : ''}
             </Text>
           </View>
         )}
@@ -155,7 +178,7 @@ export default function Mint() {
         {checkInState === 'error' && (
           <View style={styles.statusPill}>
             <Text style={[styles.statusText, { color: COLORS.bubblegum }]}>
-              couldn't get your location — check permissions
+              {failReason ?? 'could not get your location - check permissions'}
             </Text>
           </View>
         )}
@@ -171,7 +194,7 @@ export default function Mint() {
             <Text style={styles.mintButtonText}>mint now</Text>
           )}
         </Pressable>
-        <Text style={styles.footnote}>this drop is location-locked · be near the spot to mint</Text>
+        <Text style={styles.footnote}>this drop is location-locked - be near the spot to mint</Text>
       </View>
     </View>
   );
