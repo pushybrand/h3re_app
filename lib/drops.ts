@@ -8,15 +8,32 @@ export type Drop = {
   editionsLeft: number;
   editionsTotal: number;
   description: string;
+  bypassRadius?: boolean;
 };
 
+/**
+ * Display copy for drops. The server holds the authoritative coordinates -
+ * these are only used for showing distance in the feed.
+ */
 export const DROPS: Drop[] = [
+  {
+    id: 'demo-anywhere',
+    name: 'demo drop',
+    location: 'wherever you are',
+    latitude: 0,
+    longitude: 0,
+    radiusMeters: 0,
+    bypassRadius: true,
+    editionsLeft: 999,
+    editionsTotal: 999,
+    description: 'A demo badge you can mint from anywhere, so the flow can be tried without travelling. Every other check still runs - spoofed GPS is still rejected, and the bond is still staked and returned.',
+  },
   {
     id: 'neon-alley',
     name: 'neon alley',
-    location: 'Shibuya, Tokyo',
-    latitude: 50.2636233,
-    longitude: -5.053485,
+    location: 'Cornwall, UK',
+    latitude: 50.262562,
+    longitude: -5.0506975,
     radiusMeters: 100,
     editionsLeft: 8,
     editionsTotal: 50,
@@ -25,9 +42,9 @@ export const DROPS: Drop[] = [
   {
     id: 'skyline-moment',
     name: 'skyline moment',
-    location: 'Shibuya Crossing, Tokyo',
-    latitude: 35.6595,
-    longitude: 139.7004,
+    location: 'Cornwall, UK',
+    latitude: 50.262562,
+    longitude: -5.0506975,
     radiusMeters: 150,
     editionsLeft: 3,
     editionsTotal: 25,
@@ -50,4 +67,3 @@ export function getDropById(id: string | undefined): Drop | undefined {
   if (!id) return undefined;
   return DROPS.find((drop) => drop.id === id);
 }
-

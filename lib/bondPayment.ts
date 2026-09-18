@@ -41,6 +41,33 @@ async function fetchBondQuote(): Promise<BondQuote> {
   return res.json();
 }
 
+/**
+ * Devnet only. A first-time collector has no stand-in tokens, so their bond
+ * transfer fails on chain with an opaque SPL error. This tops them up once so
+ * the app is usable out of the box. On mainnet the bond is real SKR and there
+ * is no faucet.
+ */
+async function requestFaucet(): Promise<boolean> {
+  try {
+    if (!lastWalletAddress) {
+      console.log('[faucet] no wallet address known yet');
+      return false;
+    }
+    console.log('[faucet] requesting tokens for', lastWalletAddress);
+    const res = await fetch(`${API_BASE}/api/faucet`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ walletAddress: lastWalletAddress }),
+    });
+    const result = await res.json();
+    console.log('[faucet] result', result);
+    return result?.funded === true;
+  } catch (err) {
+    console.error('[faucet] failed', err);
+    return false;
+  }
+}
+
 async function payBond(quote: BondQuote): Promise<{ signature: string; walletAddress: string }> {
   const mint = new PublicKey(quote.mint);
   const escrow = new PublicKey(quote.escrow);
@@ -57,6 +84,11 @@ async function payBond(quote: BondQuote): Promise<{ signature: string; walletAdd
 
     const payer = new PublicKey(Buffer.from(auth.accounts[0].address, 'base64'));
     console.log('[bond] authorized', payer.toBase58());
+
+    // Recorded here rather than after the send, so that a failed transfer -
+    // which is exactly what an unfunded wallet produces - still leaves us an
+    // address to hand the faucet.
+    lastWalletAddress = payer.toBase58();
 
     const payerAta = await getAssociatedTokenAddress(mint, payer);
     const escrowAta = await getAssociatedTokenAddress(mint, escrow);
@@ -91,8 +123,17 @@ export async function checkInWithBond(dropId: string): Promise<CheckInResult> {
     const quote = await fetchBondQuote();
     console.log('[bond] quote', quote.amountUi, 'to', quote.escrow);
 
-    const { signature, walletAddress } = await payBond(quote);
-    lastWalletAddress = walletAddress;
+    let signature: string;
+    let walletAddress: string;
+    try {
+      ({ signature, walletAddress } = await payBond(quote));
+    } catch (bondErr) {
+      console.log('[bond] payment failed, trying faucet', bondErr);
+      const funded = await requestFaucet();
+      if (!funded) throw bondErr;
+      console.log('[bond] funded, retrying payment');
+      ({ signature, walletAddress } = await payBond(quote));
+    }
 
     const res = await fetch(`${API_BASE}/api/check-in`, {
       method: 'POST',
@@ -128,8 +169,8 @@ export type MintResult = {
 
 /**
  * Asks the server to mint. No wallet prompt - the server already verified
- * presence and holds the ticket that authorises this, so the collector
- * signs nothing beyond the bond they already paid.
+ * presence and holds the ticket that authorises this, so the collector signs
+ * nothing beyond the bond they already paid.
  */
 export async function requestMint(dropId: string): Promise<MintResult> {
   try {

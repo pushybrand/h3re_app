@@ -1,14 +1,9 @@
 /**
  * Server-side location verification for H3RE location-locked mints.
  *
- * This is the actual gate. The app's client-side location check
- * (lib/location.ts) is only a UX convenience — anyone can spoof
- * Android's reported coordinates with a root-level GPS mocker, so
- * nothing here can trust a raw lat/lon from the device alone.
- *
- * Framework-agnostic on purpose — adapt the request/response shapes
- * to whatever you deploy this as (Express route, Vercel/Cloudflare
- * function, etc).
+ * This is the actual gate. The app's client-side location check is a UX
+ * convenience only - anyone can spoof Android's reported coordinates with a
+ * root-level GPS mocker, so nothing here trusts a raw lat/lon from the device.
  */
 
 type DropRecord = {
@@ -16,6 +11,7 @@ type DropRecord = {
   latitude: number;
   longitude: number;
   radiusMeters: number;
+  bypassRadius?: boolean;
 };
 
 type CheckInRequest = {
@@ -41,7 +37,7 @@ type VerificationResult = {
   distanceMeters: number;
 };
 
-const MAX_PLAUSIBLE_SPEED_MPS = 55; // ~200 km/h — generous, catches teleport-style spoofing
+const MAX_PLAUSIBLE_SPEED_MPS = 55; // ~200 km/h - generous, catches teleport-style spoofing
 const MIN_ACCEPTABLE_ACCURACY_M = 100; // reject wildly imprecise fixes
 const SUSPICIOUSLY_PERFECT_ACCURACY_M = 1; // some spoofers report unrealistically exact fixes
 
@@ -56,21 +52,16 @@ function haversineDistanceMeters(lat1: number, lon1: number, lat2: number, lon2:
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/**
- * Core check. Call this from your API route after loading the drop
- * record and the wallet's last known check-in (if any) from your DB.
- */
 export function verifyCheckIn(
   req: CheckInRequest,
   drop: DropRecord,
   prior: PriorCheckIn
 ): VerificationResult {
-  const distanceMeters = haversineDistanceMeters(
-    req.latitude,
-    req.longitude,
-    drop.latitude,
-    drop.longitude
-  );
+  // A bypass drop has no fixed pin - it is wherever the collector is - so
+  // there is no meaningful distance to report.
+  const distanceMeters = drop.bypassRadius
+    ? 0
+    : haversineDistanceMeters(req.latitude, req.longitude, drop.latitude, drop.longitude);
 
   // 1. Reject anything the client itself flagged as mocked.
   //    Not sufficient alone, but a free early rejection.
@@ -88,13 +79,15 @@ export function verifyCheckIn(
   }
 
   // 3. Distance check against the drop's pin + radius.
-  if (distanceMeters > drop.radiusMeters) {
-    return { approved: false, reason: 'outside_radius', bondAction: 'refund', distanceMeters }; // honest miss, not fraud — refund
+  //    The demo drop deliberately skips this so a reviewer anywhere on earth
+  //    can exercise the flow. Every other check below still applies to it.
+  if (!drop.bypassRadius && distanceMeters > drop.radiusMeters) {
+    return { approved: false, reason: 'outside_radius', bondAction: 'refund', distanceMeters };
   }
 
   // 4. Speed/teleport check against the wallet's last known check-in.
-  //    A wallet that "arrives" faster than physically possible is a
-  //    strong spoofing signal, independent of the reported accuracy.
+  //    A wallet that "arrives" faster than physically possible is a strong
+  //    spoofing signal, independent of the reported accuracy.
   if (prior) {
     const elapsedSeconds = Math.max((req.timestamp - prior.timestamp) / 1000, 1);
     const distanceFromPrior = haversineDistanceMeters(
@@ -107,24 +100,4 @@ export function verifyCheckIn(
   }
 
   return { approved: true, bondAction: 'refund', distanceMeters };
-}
-
-/**
- * Bond flow this plugs into (SKR anti-spoof mechanic):
- *  1. Client stakes a small SKR amount on-chain before requesting a check-in.
- *  2. Client submits GPS data to this endpoint.
- *  3. verifyCheckIn() runs — approved → refund the bond + allow mint;
- *     rejected-as-fraud → slash the bond; rejected-as-honest-miss (outside
- *     radius) → refund, no penalty for just not being close enough yet.
- *
- * The actual stake/refund/slash calls are a small on-chain program —
- * out of scope for this file, stubbed here as the integration point.
- */
-export async function applyBondAction(
-  walletAddress: string,
-  action: VerificationResult['bondAction']
-): Promise<void> {
-  if (action === 'none') return;
-  // TODO: call the H3RE bond program's refund/slash instruction
-  console.log(`[bond] ${action} for ${walletAddress}`);
 }
