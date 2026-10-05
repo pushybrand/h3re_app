@@ -1,137 +1,113 @@
-import { useEffect, useState } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import { useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  Animated,
+  Easing,
+  ImageBackground,
+} from 'react-native';
 import { useRouter } from 'expo-router';
-import { COLORS } from './_layout';
-import { DROPS, type Drop } from '../lib/drops';
-import { getVerifiedLocation, haversineDistanceMeters } from '../lib/location';
+import { COLORS } from '../lib/theme';
 
-const ACCENTS = [COLORS.bubblegum, COLORS.mint, COLORS.yellow];
-
-type NearbyDrop = Drop & {
-  distanceM: number | null;
-  accent: string;
-};
-
-function formatDistance(drop: NearbyDrop): string {
-  if (drop.bypassRadius) return 'anywhere';
-  if (drop.distanceM === null) return '- m';
-  if (drop.distanceM < 1000) return drop.distanceM + ' m';
-  const km = drop.distanceM / 1000;
-  return (km < 10 ? km.toFixed(1) : Math.round(km).toString()) + ' km';
-}
-
-function isInRange(drop: NearbyDrop): boolean {
-  if (drop.bypassRadius) return true;
-  if (drop.distanceM === null) return false;
-  return drop.distanceM <= drop.radiusMeters;
-}
-
-export default function Discover() {
+/**
+ * Entry screen. The artwork is bundled rather than fetched so the first
+ * thing anyone sees does not depend on the network.
+ */
+export default function Intro() {
   const router = useRouter();
-  const [nearby, setNearby] = useState<NearbyDrop[]>(
-    DROPS.map((drop, i) => ({ ...drop, distanceM: null, accent: ACCENTS[i % ACCENTS.length] }))
-  );
-  const [located, setLocated] = useState(false);
+  const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    let cancelled = false;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 850,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 850,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
 
-    (async () => {
-      const fix = await getVerifiedLocation();
-      if (cancelled) return;
-
-      const withDistance: NearbyDrop[] = DROPS.map((drop, i) => {
-        const distanceM =
-          fix && !drop.bypassRadius
-            ? Math.round(
-                haversineDistanceMeters(fix.latitude, fix.longitude, drop.latitude, drop.longitude)
-              )
-            : null;
-        return { ...drop, distanceM, accent: ACCENTS[i % ACCENTS.length] };
-      }).sort((a, b) => {
-        // The demo drop has no pin, so it leads rather than sorting to the
-        // far end of the list on a meaningless distance.
-        if (a.bypassRadius && !b.bypassRadius) return -1;
-        if (b.bypassRadius && !a.bypassRadius) return 1;
-        if (a.distanceM === null && b.distanceM === null) return 0;
-        if (a.distanceM === null) return 1;
-        if (b.distanceM === null) return -1;
-        return a.distanceM - b.distanceM;
-      });
-
-      console.log('[discover] user location', fix);
-      console.log(
-        '[discover] drops by distance',
-        withDistance.map((d) => ({ id: d.id, distanceM: d.distanceM }))
-      );
-      setNearby(withDistance);
-      setLocated(Boolean(fix));
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const inRangeCount = nearby.filter(isInRange).length;
+  const glowOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.85] });
+  const glowScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.09] });
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.logo}>H3RE</Text>
-        <View style={styles.locationPill}>
-          <Text style={styles.locationText}>
-            {located ? inRangeCount + ' in range' : 'locating...'}
-          </Text>
+    <ImageBackground
+      source={require('../assets/intro.png')}
+      style={styles.bg}
+      resizeMode="cover"
+    >
+      <View style={styles.panel}>
+        <Text style={styles.tagline}>go there.{'\n'}mint h3re.</Text>
+        <Text style={styles.sub}>scarcity through presence, not price</Text>
+
+        <View style={styles.buttonWrap}>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.glow, { opacity: glowOpacity, transform: [{ scale: glowScale }] }]}
+          />
+          <Pressable style={styles.button} onPress={() => router.replace('/home')}>
+            <Text style={styles.buttonText}>LET'S GO!</Text>
+          </Pressable>
         </View>
       </View>
-
-      <FlatList
-        data={nearby}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ padding: 14, gap: 8 }}
-        renderItem={({ item }) => (
-          <Pressable
-            style={styles.card}
-            onPress={() => router.push(`/mint/${item.id}`)}
-          >
-            <View style={[styles.distanceTag, { borderColor: item.accent }]}>
-              <Text style={[styles.distanceText, { color: item.accent }]}>
-                {formatDistance(item)}
-              </Text>
-            </View>
-            <Text style={styles.cardTitle}>{item.name}</Text>
-            <Text style={styles.cardSub}>{item.location}</Text>
-            {!item.bypassRadius && (
-              <Text style={styles.cardEditions}>{item.editionsLeft}/{item.editionsTotal} left</Text>
-            )}
-          </Pressable>
-        )}
-      />
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: COLORS.bg },
-  header: {
-    paddingTop: 60, paddingHorizontal: 14, paddingBottom: 10,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  bg: { flex: 1, justifyContent: 'flex-end', backgroundColor: COLORS.tile },
+  panel: {
+    backgroundColor: 'rgba(15,15,18,0.72)',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 26,
+    paddingTop: 30,
+    paddingBottom: 46,
   },
-  logo: { fontSize: 22, fontWeight: '800', fontStyle: 'italic', color: COLORS.white },
-  locationPill: {
-    backgroundColor: COLORS.card, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5,
+  tagline: {
+    fontSize: 38,
+    lineHeight: 40,
+    fontWeight: '900',
+    fontStyle: 'italic',
+    color: COLORS.white,
+    letterSpacing: -1.2,
   },
-  locationText: { fontSize: 11, color: COLORS.white },
-  card: {
-    backgroundColor: COLORS.card, borderRadius: 10, padding: 12, position: 'relative',
+  sub: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.mint,
+    marginTop: 12,
+    letterSpacing: 0.3,
   },
-  distanceTag: {
-    position: 'absolute', top: 10, right: 10, borderWidth: 0.5, borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 2,
+  buttonWrap: { marginTop: 28, alignItems: 'center', justifyContent: 'center' },
+  glow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: -6,
+    bottom: -6,
+    borderRadius: 40,
+    backgroundColor: COLORS.bubblegum,
   },
-  distanceText: { fontSize: 10, fontFamily: 'monospace' },
-  cardTitle: { fontSize: 14, fontWeight: '700', color: COLORS.white },
-  cardSub: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
-  cardEditions: { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
+  button: {
+    width: '100%',
+    backgroundColor: COLORS.mint,
+    borderRadius: 34,
+    paddingVertical: 19,
+    alignItems: 'center',
+  },
+  buttonText: { fontSize: 17, fontWeight: '900', color: COLORS.ink, letterSpacing: 0.6 },
 });

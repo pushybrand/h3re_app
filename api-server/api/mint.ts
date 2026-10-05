@@ -1,13 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { consumeMintTicket, recordMinted } from '../lib/mintStore';
 import { getDropById } from '../lib/drops';
+import { metaFor } from '../lib/dropMeta';
 import { mintBadge } from '../lib/mint';
-
-const DISPLAY_NAMES: Record<string, string> = {
-  'neon-alley': 'Neon Alley',
-  'skyline-moment': 'Skyline Moment',
-  'ramen-spot': 'Ramen Spot',
-};
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -41,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const origin = 'https://' + (req.headers.host ?? 'h3re-api.vercel.app');
     const metadataUri = origin + '/api/metadata/' + dropId;
-    const displayName = 'H3RE - ' + (DISPLAY_NAMES[dropId] ?? dropId);
+    const displayName = 'H3RE - ' + metaFor(dropId).name;
 
     const result = await mintBadge(walletAddress, dropId, displayName, metadataUri);
     await recordMinted(walletAddress, dropId, result.assetAddress, result.signature);

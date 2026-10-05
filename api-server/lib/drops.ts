@@ -7,38 +7,16 @@ export type DropRecord = {
 };
 
 /**
- * Authoritative drop records. The client keeps its own copy for display, but
- * only these coordinates decide whether a check-in passes.
+ * The authoritative drop list. These coordinates are the only ones that
+ * decide whether a check-in passes - the app ships its own copy for
+ * display, but it has no say in verification.
  */
 export const DROPS: DropRecord[] = [
-  {
-    id: 'neon-alley',
-    latitude: 50.262562,
-    longitude: -5.0506975,
-    radiusMeters: 100,
-  },
-  {
-    id: 'skyline-moment',
-    latitude: 50.262562,
-    longitude: -5.0506975,
-    radiusMeters: 150,
-  },
-  {
-    id: 'ramen-spot',
-    latitude: 35.658,
-    longitude: 139.7016,
-    radiusMeters: 100,
-  },
-  {
-    // Reviewer access. The radius check is skipped so this can be minted from
-    // anywhere; mock-location detection, accuracy bounds, travel-speed and the
-    // full bond cycle all still run exactly as they do for a real drop.
-    id: 'demo-anywhere',
-    latitude: 0,
-    longitude: 0,
-    radiusMeters: 0,
-    bypassRadius: true,
-  },
+  { id: 'eden-project', latitude: 50.36194, longitude: -4.74472, radiusMeters: 100 },
+  { id: 'breakpoint-london', latitude: 51.496281, longitude: -0.21111, radiusMeters: 100 },
+  { id: 'shoreditch', latitude: 51.5238, longitude: -0.0762, radiusMeters: 100 },
+  { id: 'superteam-exeter', latitude: 50.7169084, longitude: -3.5294602, radiusMeters: 100 },
+  { id: 'demo-anywhere', latitude: 0, longitude: 0, radiusMeters: 0, bypassRadius: true },
 ];
 
 export function getDropById(id: string | undefined): DropRecord | undefined {

@@ -9,6 +9,7 @@
     "ios": "expo run:ios"
   },
   "dependencies": {
+    "@expo-google-fonts/space-grotesk": "^0.4.1",
     "@solana-mobile/mobile-wallet-adapter-protocol": "^2.1.7",
     "@solana-mobile/mobile-wallet-adapter-protocol-web3js": "^2.1.7",
     "@solana/spl-token": "^0.3.11",
@@ -18,6 +19,9 @@
     "expo-asset": "~11.0.5",
     "expo-build-properties": "~0.13.3",
     "expo-dev-client": "~5.0.20",
+    "expo-font": "~13.0.4",
+    "expo-haptics": "~14.0.1",
+    "expo-linear-gradient": "~14.0.2",
     "expo-location": "~18.0.0",
     "expo-router": "~4.0.0",
     "expo-status-bar": "~2.0.0",

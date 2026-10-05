@@ -28,11 +28,12 @@ Remove the phone and there is no product.
 
 ## How it works
 
-1. **Discover** - drops near you, sorted by distance
+1. **Discover** - drops near you, sorted by distance, on the Drops tab
 2. **Stake** - a small SKR bond is staked to attempt a check-in
 3. **Verify** - the server checks the GPS fix against the drop
 4. **Settle** - verified or honestly short, the bond comes back; spoofed, it doesn't
 5. **Mint** - a verified check-in authorises the badge, minted to your wallet
+6. **Collect** - minted badges appear in the Collection tab, artwork and all
 
 ---
 
@@ -85,16 +86,33 @@ Implementation notes:
 
 ---
 
+## The drops
+
+Three real, pinned locations, plus a reviewer drop that skips only the radius
+check:
+
+| Drop | Location | Notes |
+| --- | --- | --- |
+| Eden Project | Bodelva, Cornwall | Under the biomes |
+| Breakpoint London | Olympia, London | Solana Breakpoint, 15-17 Nov 2026 - mintable only inside the venue |
+| Shoreditch | Shoreditch, London | Great Eastern St to Brick Lane |
+| Demo Drop | Anywhere | Reviewer access - see below |
+
+Each drop has its own artwork, served from the API and used both as the feed
+tile and the minted asset's image.
+
+---
+
 ## Reviewer access
 
 Two things exist purely so this can be evaluated by someone who isn't in
-Cornwall. Both are deliberate and both are devnet-only.
+Cornwall or London. Both are deliberate and both are devnet-only.
 
 **The demo drop.** The drop named `demo-anywhere` skips the radius check, so it
 can be minted from any location on earth. Nothing else is relaxed:
 mock-location detection, accuracy bounds, the travel-speed check and the full
 bond cycle all run exactly as they do for a real drop. It is labelled as a demo
-drop in the app.
+drop in the app, with its own artwork.
 
 **The faucet.** Checking in costs a bond, so a wallet with no tokens cannot use
 the app at all. The faucet endpoint grants test tokens once per wallet per day,
@@ -102,7 +120,7 @@ and the app calls it automatically when a first bond payment fails. On mainnet
 the bond is real SKR and there is no faucet.
 
 To see the radius check actually rejecting, either try one of the pinned drops
-(they are in Cornwall and Tokyo) or watch the demo video.
+(they are in Cornwall and London) or watch the demo video.
 
 ---
 
@@ -132,32 +150,42 @@ consumes it, which also prevents one check-in minting twice. No ticket, no mint.
 - React Native + Expo (Expo Router)
 - Solana Mobile Stack - Mobile Wallet Adapter
 - Metaplex Core for the minted asset
-- Upstash Redis for check-in history, bond replay protection and mint tickets
+- Upstash Redis for check-in history, bond replay protection, mint tickets and
+  collection history
 - Vercel serverless for the API
 - Currently targeting devnet
 
 ## Project structure
 
-    app/                          screens (Expo Router)
-      index.tsx                   discover feed
-      mint/[id].tsx               drop detail, check-in, mint
+    app/
+      index.tsx                   entry screen (bundled artwork, no network needed)
+      (tabs)/
+        home.tsx                  location, in-range count, featured drop
+        drops.tsx                 discover feed
+        collection.tsx            minted badges, wallet-scoped
+      mint/[id].tsx                drop detail, check-in, mint
     lib/
-      bondPayment.ts              bond payment, check-in, mint requests
-      wallet.ts                   Mobile Wallet Adapter integration
-      location.ts                 GPS capture and client-side screening
+      theme.ts                    brand colours
       drops.ts                    display copy (server holds authoritative pins)
+      bondPayment.ts               bond payment, check-in, mint requests
+      wallet.ts                    Mobile Wallet Adapter integration
+      location.ts                  GPS capture and client-side screening
     api-server/
-      api/check-in.ts             bond verification + location verification
-      api/mint.ts                 ticket-gated mint
-      api/bond/quote.ts           bond terms
-      api/faucet.ts               devnet test tokens
-      api/metadata/[dropId].ts    NFT metadata
-      lib/verifyLocation.ts       the four checks
-      lib/bond.ts                 on-chain bond verification and refunds
-      lib/mint.ts                 Metaplex Core mint
-      lib/checkInStore.ts         check-in history
-      lib/bondStore.ts            bond replay protection
-      lib/mintStore.ts            mint tickets
+      api/check-in.ts              bond verification + location verification
+      api/mint.ts                  ticket-gated mint
+      api/collection.ts            a wallet's minted badges
+      api/bond/quote.ts            bond terms
+      api/faucet.ts                devnet test tokens
+      api/metadata/[dropId].ts     NFT metadata, per drop
+      lib/verifyLocation.ts        the four checks
+      lib/bond.ts                  on-chain bond verification and refunds
+      lib/mint.ts                  Metaplex Core mint
+      lib/drops.ts                 authoritative coordinates
+      lib/dropMeta.ts              display copy and artwork, keyed by drop id
+      lib/checkInStore.ts          check-in history
+      lib/bondStore.ts             bond replay protection
+      lib/mintStore.ts             mint tickets and collection history
+      public/drops/                per-drop artwork
 
 ## Running locally
 
@@ -198,19 +226,22 @@ Named rather than hidden:
 
 ## Status
 
-Working end to end on device: GPS capture, bond staking, server-side
-verification, bond refund and slash, ticket-gated Metaplex Core minting, and
-served metadata.
+Working end to end on device: entry screen, location-aware home and discover
+feed, GPS capture, bond staking, server-side verification, bond refund and
+slash, ticket-gated Metaplex Core minting, per-drop artwork served as both
+metadata and feed art, and a Collection tab showing everything a wallet has
+minted.
 
 Deliberately out of scope for this build, and listed as the next phase rather
 than as missing work:
 
 - **Artist drop creation** - wallet login, map pin, artwork upload
+- **Profiles** - usernames, avatars, and a public presence beyond a wallet address
+- **Social layer** - sharing a mint, seeing what friends have collected
 - **Loyalty unlocks** - 1/1 pieces that open for collectors who have supported
-  an artist across several drops
+  an artist across several drops, with a visible progress state in-app
 - **Multi-pin routes** - drops scattered across a city, collected as a set
 - **SKR staking multiplier** - faster loyalty progression for stakers
-- **Per-drop artwork** - the badge rendered with its own location and date
 
 The location-lock is the core claim, so it was built properly rather than
 spread thin across everything on that list.
