@@ -1,14 +1,8 @@
 import { transact, Web3MobileWallet } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
-import { PublicKey, Transaction, Connection, clusterApiUrl } from '@solana/web3.js';
+import { PublicKey, Transaction, Connection } from '@solana/web3.js';
+import { APP_IDENTITY, CHAIN, RPC_URL } from './network';
 
-// Devnet for hackathon build/testing. Swap to mainnet-beta before mainnet submission.
-export const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
-
-const APP_IDENTITY = {
-  name: 'H3RE',
-  uri: 'https://h3re.app', // replace with real domain once registered
-  icon: 'favicon.ico',
-};
+export const connection = new Connection(RPC_URL, 'confirmed');
 
 /**
  * Connects to the user's wallet app via Mobile Wallet Adapter and
@@ -18,7 +12,7 @@ export async function connectWallet(): Promise<PublicKey | null> {
   try {
     const authResult = await transact(async (wallet: Web3MobileWallet) => {
       return await wallet.authorize({
-        cluster: 'devnet',
+        chain: CHAIN,
         identity: APP_IDENTITY,
       });
     });
@@ -47,7 +41,7 @@ export async function signAndSendTransaction(
     const signedTx = await transact(async (wallet: Web3MobileWallet) => {
       console.log('[wallet] authorizing');
       const authResult = await wallet.authorize({
-        cluster: 'devnet',
+        chain: CHAIN,
         identity: APP_IDENTITY,
       });
       const pubkeyBytes = Buffer.from(authResult.accounts[0].address, 'base64');

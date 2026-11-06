@@ -16,7 +16,6 @@ export const DROPS: DropRecord[] = [
   { id: 'breakpoint-london', latitude: 51.496281, longitude: -0.21111, radiusMeters: 100 },
   { id: 'shoreditch', latitude: 51.5238, longitude: -0.0762, radiusMeters: 100 },
   { id: 'superteam-exeter', latitude: 50.7169084, longitude: -3.5294602, radiusMeters: 100 },
-  { id: 'demo-anywhere', latitude: 0, longitude: 0, radiusMeters: 0, bypassRadius: true },
 ];
 
 export function getDropById(id: string | undefined): DropRecord | undefined {

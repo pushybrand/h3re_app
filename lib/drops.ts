@@ -9,30 +9,20 @@ export type Drop = {
   editionsTotal: number;
   description: string;
   imageUrl?: string;
+  // The collectible itself - the art the minted NFT carries, shown in the
+  // unboxing reveal. Mirrors the image paths in api-server/lib/dropMeta.ts.
+  badgeUrl?: string;
   bypassRadius?: boolean;
 };
 
 const ART = 'https://h3re-api.vercel.app/drops/';
+const BADGE = 'https://h3re-api.vercel.app/';
 
 /**
  * Display copy for drops. The server holds the authoritative coordinates -
  * these are only used for showing distance in the feed.
  */
 export const DROPS: Drop[] = [
-  {
-    id: 'demo-anywhere',
-    name: 'demo drop',
-    location: 'wherever you are',
-    latitude: 0,
-    longitude: 0,
-    radiusMeters: 0,
-    bypassRadius: true,
-    editionsLeft: 999,
-    editionsTotal: 999,
-    imageUrl: ART + 'demo-anywhere.jpg',
-    description:
-      'A demo badge you can mint from anywhere, so the flow can be tried without travelling. Every other check still runs - spoofed GPS is still rejected, and the bond is still staked and returned.',
-  },
   {
     id: 'eden-project',
     name: 'eden project',
@@ -45,6 +35,7 @@ export const DROPS: Drop[] = [
     description:
       'Under the domes at Bodelva. A rainforest grown inside a worked-out Cornish clay pit. Mintable only from inside the biomes.',
     imageUrl: ART + 'eden-project.jpg',
+    badgeUrl: BADGE + 'edenproject_badge.png',
   },
   {
     id: 'breakpoint-london',
@@ -58,6 +49,7 @@ export const DROPS: Drop[] = [
     description:
       'Olympia London, 15-17 November 2026. Solana Breakpoint in Europe for the first time. Mintable only from inside the venue.',
     imageUrl: ART + 'breakpoint-london.jpg',
+    badgeUrl: BADGE + 'breakpoint_badge.png',
   },
   {
     id: 'shoreditch',
@@ -71,6 +63,7 @@ export const DROPS: Drop[] = [
     description:
       'Great Eastern Street to Brick Lane. Shutters, paste-ups and repaint cycles. The walls here are never the same twice.',
     imageUrl: ART + 'shoreditch.jpg',
+    badgeUrl: BADGE + 'shoreditch_badge.png',
   },
   {
     id: 'superteam-exeter',
@@ -79,11 +72,12 @@ export const DROPS: Drop[] = [
     latitude: 50.7169084,
     longitude: -3.5294602,
     radiusMeters: 100,
-    editionsLeft: 30,
-    editionsTotal: 30,
+    editionsLeft: 10,
+    editionsTotal: 10,
     description:
       'Maclaines Warehouse, Haven Rd. Superteam UK meets on the quayside, pints in hand. Mintable only from inside the brewery.',
     imageUrl: ART + 'superteam-exeter.jpg',
+    badgeUrl: BADGE + 'exeter_badge.png',
   },
 ];
 

@@ -1,4 +1,5 @@
 import { Redis } from '@upstash/redis';
+import { KEY_NS } from './network';
 
 /**
  * Mint tickets and collection history.
@@ -18,9 +19,10 @@ import { Redis } from '@upstash/redis';
 
 const redis = Redis.fromEnv();
 
-const TICKET_PREFIX = 'mint-ticket:';
-const MINTED_PREFIX = 'minted:';
-const COLLECTION_PREFIX = 'collection:';
+const TICKET_PREFIX = KEY_NS + 'mint-ticket:';
+const MINTED_PREFIX = KEY_NS + 'minted:';
+const COLLECTION_PREFIX = KEY_NS + 'collection:';
+const EDITION_PREFIX = KEY_NS + 'edition-count:';
 const TICKET_TTL_SECONDS = 15 * 60;
 const COLLECTION_MAX = 200;
 
@@ -115,6 +117,49 @@ export async function recordMinted(
     await redis.ltrim(collectionKey(walletAddress), 0, COLLECTION_MAX - 1);
   } catch (err) {
     console.error('[mint] collection push failed', err);
+  }
+}
+
+/**
+ * Counts the mints already recorded for a drop. Used once, to seed the
+ * edition counter, so badges minted before edition tracking existed still
+ * take their place in the numbering instead of being skipped.
+ */
+async function countRecordedMints(dropId: string): Promise<number> {
+  let cursor: string | number = 0;
+  let count = 0;
+  do {
+    const [next, keys] = (await redis.scan(cursor, {
+      match: MINTED_PREFIX + '*:' + dropId,
+      count: 200,
+    })) as [string | number, string[]];
+    count += keys.length;
+    cursor = next;
+  } while (String(cursor) !== '0');
+  return count;
+}
+
+/**
+ * Hands out the next edition number for a drop: #1, #2, #3...
+ *
+ * Call this after recordMinted, so the seeding scan already sees the mint
+ * being numbered. Returns null if Redis is unavailable - the mint itself
+ * still stands, the reveal just shows no number.
+ */
+export async function assignEditionNumber(dropId: string): Promise<number | null> {
+  const key = EDITION_PREFIX + dropId;
+  try {
+    const exists = await redis.exists(key);
+    if (!exists) {
+      // The scan includes the mint being numbered right now, hence the -1.
+      // NX means two first-ever mints racing each other can't both seed.
+      const recorded = await countRecordedMints(dropId);
+      await redis.set(key, Math.max(recorded - 1, 0), { nx: true });
+    }
+    return await redis.incr(key);
+  } catch (err) {
+    console.error('[mint] edition number failed', err);
+    return null;
   }
 }
 

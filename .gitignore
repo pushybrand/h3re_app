@@ -13,3 +13,5 @@ web-build/
 *.tsbuildinfo
 
 h3re-escrow.json
+h3re-mainnet-escrow.json
+h3re-mainnet-collection.txt

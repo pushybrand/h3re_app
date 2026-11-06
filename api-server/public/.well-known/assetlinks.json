@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.h3re.app",
+      "sha256_cert_fingerprints": [
+        "7A:E9:C3:05:23:EC:A3:BC:4F:DF:27:21:C1:64:F5:FD:9C:50:BC:A4:E9:BB:E5:97:8D:5B:FC:BD:37:D2:18:32"
+      ]
+    }
+  }
+]

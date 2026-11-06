@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { consumeMintTicket, recordMinted } from '../lib/mintStore';
+import { consumeMintTicket, recordMinted, assignEditionNumber } from '../lib/mintStore';
 import { getDropById } from '../lib/drops';
 import { metaFor } from '../lib/dropMeta';
 import { mintBadge } from '../lib/mint';
@@ -40,11 +40,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const result = await mintBadge(walletAddress, dropId, displayName, metadataUri);
     await recordMinted(walletAddress, dropId, result.assetAddress, result.signature);
+    const edition = await assignEditionNumber(dropId);
 
     return res.status(200).json({
       minted: true,
       assetAddress: result.assetAddress,
       signature: result.signature,
+      edition,
     });
   } catch (error) {
     console.error('[mint] failed', error);

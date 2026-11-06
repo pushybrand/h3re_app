@@ -21,12 +21,29 @@ import Tag from '../../components/Tag';
 import GradientButton from '../../components/GradientButton';
 import GlobeIcon from '../../components/GlobeIcon';
 import BoltIcon from '../../components/BoltIcon';
+import DropReveal, { RevealStatus } from '../../components/DropReveal';
 
 type CheckInState = 'idle' | 'checking' | 'in-range' | 'out-of-range' | 'error';
 
+type RevealState = {
+  visible: boolean;
+  status: RevealStatus;
+  edition?: number | null;
+  assetAddress?: string;
+  failTitle?: string;
+  failMessage?: string;
+};
+
 function describeFailure(reason?: string, error?: string): string {
   if (error === 'location_permission_denied') return 'location permission denied';
-  if (error) return 'check-in failed';
+  if (error === 'insufficient_sol') return 'not enough SOL - the 0.01 SOL bond comes straight back';
+  if (error === 'bond_quote_unavailable') return 'h3re server unreachable - try again';
+  if (error === 'bond_transaction_failed') return 'bond transfer failed on chain';
+  if (error && /declin|reject|cancel|authoriz/i.test(error)) return 'cancelled in your wallet';
+  if (error && /insufficient|debit an account/i.test(error)) return 'not enough SOL - the 0.01 SOL bond comes straight back';
+  // Anything unexpected: show the real message, so problems can be diagnosed
+  // from a screenshot instead of guessed at.
+  if (error) return 'check-in failed: ' + error.slice(0, 90);
   switch (reason) {
     case 'outside_radius': return 'too far away';
     case 'client_reported_mock_location': return 'mock location detected';
@@ -38,6 +55,7 @@ function describeFailure(reason?: string, error?: string): string {
     case 'bond_lookup_failed': return 'bond payment failed';
     case 'bond_amount_insufficient': return 'bond too small';
     case 'bond_payer_mismatch': return 'bond came from another wallet';
+    case 'bond_expired': return 'bond too old - check in again';
     default: return 'location check failed';
   }
 }
@@ -97,6 +115,8 @@ export default function Mint() {
   const [failReason, setFailReason] = useState<string | null>(null);
   const [bondNote, setBondNote] = useState<string | null>(null);
   const [minting, setMinting] = useState(false);
+  const [reveal, setReveal] = useState<RevealState>({ visible: false, status: 'sealed' });
+  const [collected, setCollected] = useState<{ edition: number | null } | null>(null);
   const watchRef = useRef<Location.LocationSubscription | null>(null);
 
   useEffect(() => {
@@ -132,7 +152,7 @@ export default function Mint() {
     if (!drop) { setCheckInState('error'); return; }
 
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackType.Light).catch(() => {});
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     } catch {}
 
     setCheckInState('checking');
@@ -179,29 +199,39 @@ export default function Mint() {
   const handleMint = useCallback(async () => {
     if (!drop) return;
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackType.Light).catch(() => {});
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     } catch {}
     setMinting(true);
+    // The sealed card goes up straight away and pulses while the mint
+    // confirms - the reveal only unlocks once the badge actually exists.
+    setReveal({ visible: true, status: 'sealed' });
     try {
       const result = await requestMint(drop.id);
       if (result.minted) {
-        try {
-          await Haptics.impactAsync(Haptics.ImpactFeedbackType.Heavy);
-          await new Promise((resolve) => setTimeout(resolve, 90));
-          await Haptics.impactAsync(Haptics.ImpactFeedbackType.Heavy);
-          await new Promise((resolve) => setTimeout(resolve, 90));
-          await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } catch {}
-        Alert.alert('Minted', drop.name + ' is yours.\nasset ' + (result.assetAddress ?? '').slice(0, 12) + '...');
+        setCollected({ edition: result.edition ?? null });
+        setReveal({
+          visible: true,
+          status: 'ready',
+          edition: result.edition ?? null,
+          assetAddress: result.assetAddress,
+        });
       } else if (result.reason === 'already_minted') {
-        try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}); } catch {}
-        Alert.alert('Already minted', 'You have already collected this drop.');
+        setReveal({
+          visible: true,
+          status: 'failed',
+          failTitle: 'already collected',
+          failMessage: 'this wallet already holds this drop. one per collector.',
+        });
       } else if (result.reason === 'no_valid_check_in') {
-        try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}); } catch {}
-        Alert.alert('Check in first', 'Your check-in expired. Check in again to mint.');
+        setCheckInState('idle');
+        setReveal({
+          visible: true,
+          status: 'failed',
+          failTitle: 'check-in expired',
+          failMessage: 'check-ins last 15 minutes. check in again and you can mint straight away.',
+        });
       } else {
-        try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}); } catch {}
-        Alert.alert('Mint failed', result.reason ?? result.error ?? 'Something went wrong.');
+        setReveal({ visible: true, status: 'failed' });
       }
     } finally {
       setMinting(false);
@@ -333,7 +363,7 @@ export default function Mint() {
             </View>
           )}
 
-          {checkInState === 'in-range' && (
+          {checkInState === 'in-range' && !collected && (
             <View style={[styles.banner, { backgroundColor: COLORS.mint }]}>
               <Text style={styles.bannerText}>
                 {'✓ '}you are in range{distanceLabel ? '  ' + distanceLabel : ''}
@@ -359,13 +389,24 @@ export default function Mint() {
             </View>
           )}
 
+          {collected && (
+            <View style={[styles.banner, { backgroundColor: COLORS.mint }]}>
+              <Text style={styles.bannerText}>
+                {'✦ collected'}
+                {collected.edition
+                  ? '  #' + collected.edition + (drop.bypassRadius ? '' : ' of ' + drop.editionsTotal)
+                  : ''}
+              </Text>
+            </View>
+          )}
+
           <View style={styles.buttonSlot}>
             <GradientButton
               label="mint now"
               icon="▢"
               endIcon={<BoltIcon size={18} color={COLORS.white} />}
               onPress={handleMint}
-              disabled={checkInState !== 'in-range'}
+              disabled={checkInState !== 'in-range' || !!collected}
               loading={minting}
               variant="secondary"
             />
@@ -378,6 +419,20 @@ export default function Mint() {
           </Text>
         </View>
       </ScrollView>
+
+      <DropReveal
+        visible={reveal.visible}
+        status={reveal.status}
+        dropName={drop.name}
+        locationLabel={subtitle}
+        badgeUrl={drop.badgeUrl}
+        edition={reveal.edition}
+        editionsTotal={drop.bypassRadius ? null : drop.editionsTotal}
+        assetAddress={reveal.assetAddress}
+        failTitle={reveal.failTitle}
+        failMessage={reveal.failMessage}
+        onClose={() => setReveal((r) => ({ ...r, visible: false }))}
+      />
     </ImageBackground>
   );
 }

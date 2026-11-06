@@ -2,6 +2,7 @@ import { create, mplCore, fetchCollection } from '@metaplex-foundation/mpl-core'
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { generateSigner, keypairIdentity, publicKey } from '@metaplex-foundation/umi';
 import { base58 } from '@metaplex-foundation/umi/serializers';
+import { RPC_URL } from './network';
 
 /**
  * Mints the H3RE badge for a verified check-in.
@@ -15,10 +16,9 @@ import { base58 } from '@metaplex-foundation/umi/serializers';
  * substantially cheaper, and the collector pays nothing.
  */
 
-const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 
 export function buildUmi() {
-  const secretRaw = process.env.BOND_ESCROW_SECRET;
+  const secretRaw = process.env.BOND_ESCROW_SECRET?.trim();
   if (!secretRaw) throw new Error('BOND_ESCROW_SECRET is not set');
 
   const umi = createUmi(RPC_URL).use(mplCore());
@@ -41,7 +41,7 @@ export async function mintBadge(
   const umi = buildUmi();
   const asset = generateSigner(umi);
 
-  const collectionAddressRaw = process.env.H3RE_COLLECTION_ADDRESS;
+  const collectionAddressRaw = process.env.H3RE_COLLECTION_ADDRESS?.trim();
   const collection = collectionAddressRaw
     ? await fetchCollection(umi, publicKey(collectionAddressRaw))
     : undefined;

@@ -1,29 +1,21 @@
 import { transact, Web3MobileWallet } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
-import { Connection, PublicKey, Transaction, clusterApiUrl } from '@solana/web3.js';
-import {
-  getAssociatedTokenAddress,
-  createTransferInstruction,
-} from '@solana/spl-token';
+import { Connection, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { getVerifiedLocation } from './location';
-
-const API_BASE = 'https://h3re-api.vercel.app';
+import { API_BASE, APP_IDENTITY, CHAIN, RPC_URL } from './network';
 
 let lastWalletAddress: string | null = null;
 
-const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
+const connection = new Connection(RPC_URL, 'confirmed');
 
-const APP_IDENTITY = {
-  name: 'H3RE',
-  uri: 'https://h3re.app',
-  icon: 'favicon.ico',
-};
+// The collector also pays the network fee on their own bond transfer, so
+// they need a little more than the bond itself.
+const FEE_HEADROOM_LAMPORTS = 10_000;
 
 type BondQuote = {
-  mint: string;
+  currency: 'SOL';
   escrow: string;
-  amountBase: number;
-  amountUi: number;
-  decimals: number;
+  amountLamports: number;
+  amountSol: number;
 };
 
 export type CheckInResult = {
@@ -37,39 +29,19 @@ export type CheckInResult = {
 
 async function fetchBondQuote(): Promise<BondQuote> {
   const res = await fetch(`${API_BASE}/api/bond/quote`);
-  if (!res.ok) throw new Error(`Bond quote unavailable (${res.status})`);
-  return res.json();
+  if (!res.ok) throw new Error('bond_quote_unavailable');
+  const quote = await res.json();
+  if (typeof quote?.amountLamports !== 'number' || typeof quote?.escrow !== 'string') {
+    throw new Error('bond_quote_unavailable');
+  }
+  return quote;
 }
 
 /**
- * Devnet only. A first-time collector has no stand-in tokens, so their bond
- * transfer fails on chain with an opaque SPL error. This tops them up once so
- * the app is usable out of the box. On mainnet the bond is real SKR and there
- * is no faucet.
+ * Stakes the check-in bond: a plain SOL transfer from the collector to the
+ * H3RE bond wallet. The server refunds it after an honest check-in.
  */
-async function requestFaucet(): Promise<boolean> {
-  try {
-    if (!lastWalletAddress) {
-      console.log('[faucet] no wallet address known yet');
-      return false;
-    }
-    console.log('[faucet] requesting tokens for', lastWalletAddress);
-    const res = await fetch(`${API_BASE}/api/faucet`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ walletAddress: lastWalletAddress }),
-    });
-    const result = await res.json();
-    console.log('[faucet] result', result);
-    return result?.funded === true;
-  } catch (err) {
-    console.error('[faucet] failed', err);
-    return false;
-  }
-}
-
 async function payBond(quote: BondQuote): Promise<{ signature: string; walletAddress: string }> {
-  const mint = new PublicKey(quote.mint);
   const escrow = new PublicKey(quote.escrow);
 
   console.log('[bond] fetching blockhash');
@@ -78,27 +50,39 @@ async function payBond(quote: BondQuote): Promise<{ signature: string; walletAdd
   console.log('[bond] opening wallet session');
   const { signedTx, walletAddress } = await transact(async (wallet: Web3MobileWallet) => {
     const auth = await wallet.authorize({
-      cluster: 'devnet',
+      chain: CHAIN,
       identity: APP_IDENTITY,
     });
 
     const payer = new PublicKey(Buffer.from(auth.accounts[0].address, 'base64'));
     console.log('[bond] authorized', payer.toBase58());
-
-    // Recorded here rather than after the send, so that a failed transfer -
-    // which is exactly what an unfunded wallet produces - still leaves us an
-    // address to hand the faucet.
     lastWalletAddress = payer.toBase58();
 
-    const payerAta = await getAssociatedTokenAddress(mint, payer);
-    const escrowAta = await getAssociatedTokenAddress(mint, escrow);
+    // Check before asking for a signature: an underfunded wallet would
+    // otherwise sign, then fail on chain with an unhelpful error. If the
+    // balance lookup itself fails (public RPC hiccup), don't block the
+    // check-in over it - the network will reject a short payment anyway.
+    let balance: number | null = null;
+    try {
+      balance = await connection.getBalance(payer, 'confirmed');
+    } catch (err) {
+      console.warn('[bond] balance check skipped', err);
+    }
+    if (balance !== null && balance < quote.amountLamports + FEE_HEADROOM_LAMPORTS) {
+      throw new Error('insufficient_sol');
+    }
 
-    const tx = new Transaction();
-    tx.add(createTransferInstruction(payerAta, escrowAta, payer, quote.amountBase));
+    const tx = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: payer,
+        toPubkey: escrow,
+        lamports: quote.amountLamports,
+      })
+    );
     tx.recentBlockhash = latestBlockhash.blockhash;
     tx.feePayer = payer;
 
-    console.log('[bond] requesting signature');
+    console.log('[bond] requesting signature for', quote.amountSol, 'SOL');
     const signed = await wallet.signTransactions({ transactions: [tx] });
 
     return { signedTx: signed[0], walletAddress: payer.toBase58() };
@@ -106,7 +90,15 @@ async function payBond(quote: BondQuote): Promise<{ signature: string; walletAdd
 
   console.log('[bond] sending bond transaction');
   const signature = await connection.sendRawTransaction(signedTx.serialize());
-  await connection.confirmTransaction(signature, 'confirmed');
+  const confirmation = await connection.confirmTransaction(
+    {
+      signature,
+      blockhash: latestBlockhash.blockhash,
+      lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+    },
+    'confirmed'
+  );
+  if (confirmation.value.err) throw new Error('bond_transaction_failed');
   console.log('[bond] bond confirmed', signature);
 
   return { signature, walletAddress };
@@ -121,19 +113,9 @@ export async function checkInWithBond(dropId: string): Promise<CheckInResult> {
     console.log('[check-in] got fix', fix.latitude, fix.longitude);
 
     const quote = await fetchBondQuote();
-    console.log('[bond] quote', quote.amountUi, 'to', quote.escrow);
+    console.log('[bond] quote', quote.amountSol, 'SOL to', quote.escrow);
 
-    let signature: string;
-    let walletAddress: string;
-    try {
-      ({ signature, walletAddress } = await payBond(quote));
-    } catch (bondErr) {
-      console.log('[bond] payment failed, trying faucet', bondErr);
-      const funded = await requestFaucet();
-      if (!funded) throw bondErr;
-      console.log('[bond] funded, retrying payment');
-      ({ signature, walletAddress } = await payBond(quote));
-    }
+    const { signature, walletAddress } = await payBond(quote);
 
     const res = await fetch(`${API_BASE}/api/check-in`, {
       method: 'POST',
@@ -163,6 +145,9 @@ export type MintResult = {
   minted: boolean;
   assetAddress?: string;
   signature?: string;
+  // Which number this badge is in its drop (#1, #2...). Null if the server
+  // couldn't assign one - the mint still stands.
+  edition?: number | null;
   reason?: string;
   error?: string;
 };
@@ -170,7 +155,7 @@ export type MintResult = {
 /**
  * Asks the server to mint. No wallet prompt - the server already verified
  * presence and holds the ticket that authorises this, so the collector signs
- * nothing beyond the bond they already paid.
+ * nothing beyond the bond they already paid. The mint fee is on H3RE.
  */
 export async function requestMint(dropId: string): Promise<MintResult> {
   try {

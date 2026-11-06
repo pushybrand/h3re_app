@@ -137,12 +137,6 @@ export default function HomeScreen() {
         >
           <Text style={styles.actionText}>collection</Text>
         </Pressable>
-        <Pressable
-          style={[styles.action, { backgroundColor: COLORS.bubblegum }]}
-          onPress={() => router.push('/mint/demo-anywhere')}
-        >
-          <Text style={styles.actionText}>try demo</Text>
-        </Pressable>
       </View>
 
       {featured && (

@@ -1,17 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import {
-  BOND_AMOUNT_BASE,
-  BOND_AMOUNT_UI,
-  BOND_DECIMALS,
-  getBondMint,
-  getEscrowPublicKey,
-} from '../../lib/bond';
+import { BOND_LAMPORTS, BOND_SOL, getEscrowPublicKey } from '../../lib/bond';
+import { CLUSTER } from '../../lib/network';
 
 /**
  * Tells the app what bond to stake before attempting a location check-in.
  *
- * Served rather than hardcoded in the client so the amount, mint and escrow
- * can change without shipping a new APK — and so the client never decides
+ * Served rather than hardcoded in the client so the amount and bond wallet
+ * can change without shipping a new APK - and so the client never decides
  * what a valid bond looks like.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -21,11 +16,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     return res.status(200).json({
-      mint: getBondMint().toBase58(),
+      currency: 'SOL',
+      cluster: CLUSTER,
       escrow: getEscrowPublicKey().toBase58(),
-      amountBase: BOND_AMOUNT_BASE,
-      amountUi: BOND_AMOUNT_UI,
-      decimals: BOND_DECIMALS,
+      amountLamports: BOND_LAMPORTS,
+      amountSol: BOND_SOL,
     });
   } catch (error) {
     console.error('[bond] quote failed', error);

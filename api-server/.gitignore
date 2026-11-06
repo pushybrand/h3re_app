@@ -3,3 +3,5 @@
 .env*.local
 .env
 .env*
+h3re-mainnet-escrow.json
+h3re-mainnet-collection.txt

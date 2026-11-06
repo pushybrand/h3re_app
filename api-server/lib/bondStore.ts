@@ -1,4 +1,5 @@
 import { Redis } from '@upstash/redis';
+import { KEY_NS } from './network';
 
 /**
  * Replay protection for bond payments.
@@ -10,7 +11,7 @@ import { Redis } from '@upstash/redis';
 
 const redis = Redis.fromEnv();
 
-const KEY_PREFIX = 'bond-sig:';
+const KEY_PREFIX = KEY_NS + 'bond-sig:';
 const RETENTION_SECONDS = 60 * 60 * 24 * 30;
 
 export async function isBondSignatureUsed(signature: string): Promise<boolean> {

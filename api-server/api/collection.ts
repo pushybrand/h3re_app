@@ -1,11 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { listMinted } from '../lib/mintStore';
 import { metaFor } from '../lib/dropMeta';
+import { explorerAddressUrl } from '../lib/network';
 
 /**
  * A collector's minted badges, newest first. Read-only and keyed on a
  * public wallet address, so there is nothing here that is not already
- * visible on-chain - this just saves the app from indexing devnet itself.
+ * visible on-chain - this just saves the app from indexing the chain itself.
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -32,8 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         assetAddress: item.assetAddress,
         signature: item.signature,
         mintedAt: item.mintedAt,
-        explorerUrl:
-          'https://explorer.solana.com/address/' + item.assetAddress + '?cluster=devnet',
+        explorerUrl: explorerAddressUrl(item.assetAddress),
       };
     });
 
